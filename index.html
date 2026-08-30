@@ -1284,23 +1284,43 @@ class Component extends DCLogic {
       // Initialize Lenis Smooth Scroll with butter-smooth easing & momentum
       if (typeof window.Lenis !== 'undefined') {
         this.lenis = new window.Lenis({
-          duration: 1.1,
+          duration: 0.95,
           easing: (t) => Math.min(1, 1.001 - Math.pow(2, -10 * t)),
           direction: 'vertical',
           gestureDirection: 'vertical',
           smoothWheel: true,
-          wheelMultiplier: 1.0,
-          touchMultiplier: 1.5,
+          wheelMultiplier: 0.95,
+          touchMultiplier: 1.2,
+          infinite: false,
         });
 
-        const lenisRaf = () => {
+        // Unified Master Ticker (1 single rAF loop for whole page)
+        const masterLoop = (time) => {
           if (this.destroyed) return;
           if (this.lenis) {
-            this.lenis.raf(performance.now());
+            this.lenis.raf(time);
           }
-          this.animId = requestAnimationFrame(lenisRaf);
+
+          if (this.targetPlayheadFrame !== undefined && this.playheadFrame !== undefined) {
+            const diff = this.targetPlayheadFrame - this.playheadFrame;
+            if (Math.abs(diff) > 0.004) {
+              this.playheadFrame += diff * 0.35;
+              const currentFrame = Math.max(1, Math.min(this.TOTAL_FRAMES, Math.round(this.playheadFrame)));
+              if (!this.isMobile && this.canvas) {
+                if (currentFrame !== this.lastDrawnFrame) {
+                  this.drawFrameOnCanvas(currentFrame);
+                }
+              }
+              if (this.frame && currentFrame !== this.lastFrameText) {
+                this.lastFrameText = currentFrame;
+                this.frame.textContent = 'FRAME ' + String(currentFrame).padStart(4, '0') + ' / ' + String(this.TOTAL_FRAMES).padStart(4, '0');
+              }
+            }
+          }
+
+          this.animId = requestAnimationFrame(masterLoop);
         };
-        this.animId = requestAnimationFrame(lenisRaf);
+        this.animId = requestAnimationFrame(masterLoop);
 
         this.lenis.on('scroll', (e) => {
           if (this.onLenisScroll) this.onLenisScroll(e.scroll);
@@ -1582,21 +1602,11 @@ class Component extends DCLogic {
     const cellCol = idxInSprite % 2;
     const cellRow = Math.floor(idxInSprite / 2);
 
-    const nw = spriteImg.naturalWidth || spriteImg.width || (spriteImg instanceof ImageBitmap ? spriteImg.width : 3840);
-    const nh = spriteImg.naturalHeight || spriteImg.height || (spriteImg instanceof ImageBitmap ? spriteImg.height : 2160);
-    const cellW = nw / 2;
-    const cellH = nh / 2;
+    const sx = cellCol * 1920;
+    const sy = cellRow * 1080;
 
-    const sx = cellCol * cellW;
-    const sy = cellRow * cellH;
-    const sw = cellW;
-    const sh = cellH;
-
-    // An ImageBitmap that has been close()d throws here. The eviction policy
-    // keeps the playhead's own sheet, so this should not happen -- but a broken
-    // frame must never take the whole sequence down with it.
     try {
-      this.ctx.drawImage(spriteImg, sx, sy, sw, sh, this.offsetX, this.offsetY, this.drawW, this.drawH);
+      this.ctx.drawImage(spriteImg, sx, sy, 1920, 1080, this.offsetX, this.offsetY, this.drawW, this.drawH);
     } catch (e) {
       delete this.sprites[spriteIndex];
       if (this.posterReady()) this.drawPoster();
@@ -1716,26 +1726,7 @@ class Component extends DCLogic {
       this.renderFrame(p, Math.round(this.playheadFrame));
     };
 
-    // Sub-frame Continuous Playhead Lerp loop for buttery physical flywheel gliding
-    const playheadLoop = () => {
-      if (this.destroyed) return;
-      const diff = this.targetPlayheadFrame - this.playheadFrame;
-      if (Math.abs(diff) > 0.005) {
-        this.playheadFrame += diff * 0.28;
-        const currentFrame = Math.max(1, Math.min(this.TOTAL_FRAMES, Math.round(this.playheadFrame)));
-        if (!this.isMobile && this.canvas) {
-          if (currentFrame !== this.lastDrawnFrame) {
-            this.drawFrameOnCanvas(currentFrame);
-          }
-        }
-        if (this.frame && currentFrame !== this.lastFrameText) {
-          this.lastFrameText = currentFrame;
-          this.frame.textContent = 'FRAME ' + String(currentFrame).padStart(4, '0') + ' / ' + String(this.TOTAL_FRAMES).padStart(4, '0');
-        }
-      }
-      this.rafId = requestAnimationFrame(playheadLoop);
-    };
-    this.rafId = requestAnimationFrame(playheadLoop);
+
 
     this.markScrolling = () => {
       this.isScrolling = true;
