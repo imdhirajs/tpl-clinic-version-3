@@ -1388,7 +1388,9 @@ class Component extends DCLogic {
     // than the source anyway. Capping both at the same value removes the
     // wasted upscale.
     const isWebKit = /^((?!chrome|android|crios|fxios|edg).)*safari/i.test(navigator.userAgent);
-    const dpr = Math.min(window.devicePixelRatio || 1, isWebKit ? 1.5 : 2);
+    // Align canvas buffer to match 1080p source frame width (1920px) for 1:1 Metal texture blit
+    const idealDpr = Math.min(window.devicePixelRatio || 1, 1920 / Math.max(cssWidth, 1));
+    const dpr = Math.max(1, Math.min(idealDpr, 1.5));
 
     const targetW = Math.round(cssWidth * dpr);
     const targetH = Math.round(cssHeight * dpr);
@@ -1418,8 +1420,6 @@ class Component extends DCLogic {
 
     if (this.ctx) {
       this.ctx.imageSmoothingEnabled = true;
-      // In Safari (WebKit), 'medium' engages native Metal hardware scaling (<1.5ms)
-      // avoiding the 35ms CPU bicubic filter caused by 'high' on 4K canvases.
       this.ctx.imageSmoothingQuality = isWebKit ? 'medium' : 'high';
       this._smoothing = isWebKit ? 'medium' : 'high';
     }
@@ -1602,11 +1602,8 @@ class Component extends DCLogic {
     }
 
     const idxInSprite = (spriteIndex === targetSpriteIndex) ? ((frameNum - 1) % 4) : 3;
-    const cellCol = idxInSprite % 2;
-    const cellRow = Math.floor(idxInSprite / 2);
-
-    const sx = cellCol * 1920;
-    const sy = cellRow * 1080;
+    const CELL_COORDS = [[0, 0], [1920, 0], [0, 1080], [1920, 1080]];
+    const [sx, sy] = CELL_COORDS[idxInSprite] || [0, 0];
 
     try {
       this.ctx.drawImage(spriteImg, sx, sy, 1920, 1080, this.offsetX, this.offsetY, this.drawW, this.drawH);
@@ -1748,23 +1745,9 @@ class Component extends DCLogic {
 
     this.onScroll = () => {
       if (!this.hero) return;
-      // If Lenis is actively running, let Lenis own the scroll pipeline exclusively to prevent micro-jitter
       if (this.lenis) return;
       this.markScrolling();
-
-      if (this.ticking) return;
-      this.ticking = true;
-      const rafId = requestAnimationFrame(() => {
-        this.ticking = false;
-        this.renderTick();
-      });
-      clearTimeout(this._tickFallback);
-      this._tickFallback = setTimeout(() => {
-        if (!this.ticking) return;
-        this.ticking = false;
-        cancelAnimationFrame(rafId);
-        this.renderTick();
-      }, 250);
+      this.renderTick(window.scrollY);
     };
 
     // Returning to the tab must re-sync the sequence to wherever the page now is.
