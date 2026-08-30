@@ -1283,31 +1283,23 @@ class Component extends DCLogic {
       // Initialize Lenis Smooth Scroll with butter-smooth easing & momentum
       if (typeof window.Lenis !== 'undefined') {
         this.lenis = new window.Lenis({
-          duration: 1.2,
+          duration: 1.1,
           easing: (t) => Math.min(1, 1.001 - Math.pow(2, -10 * t)),
           direction: 'vertical',
           gestureDirection: 'vertical',
           smoothWheel: true,
           wheelMultiplier: 1.0,
-          touchMultiplier: 1.2,
+          touchMultiplier: 1.5,
         });
 
-        // Use GSAP ticker if available for 100% single-loop synchronized frame timing
-        if (typeof window.gsap !== 'undefined' && window.gsap.ticker) {
-          this._gsapTickerCb = (time) => {
-            if (this.lenis) this.lenis.raf(time * 1000);
-          };
-          window.gsap.ticker.add(this._gsapTickerCb);
-          window.gsap.ticker.lagSmoothing(0);
-        } else {
-          const lenisRaf = (time) => {
-            if (this.lenis) {
-              this.lenis.raf(time);
-              this.animId = requestAnimationFrame(lenisRaf);
-            }
-          };
+        const lenisRaf = () => {
+          if (this.destroyed) return;
+          if (this.lenis) {
+            this.lenis.raf(performance.now());
+          }
           this.animId = requestAnimationFrame(lenisRaf);
-        }
+        };
+        this.animId = requestAnimationFrame(lenisRaf);
 
         this.lenis.on('scroll', (e) => {
           if (this.onLenisScroll) this.onLenisScroll(e.scroll);
@@ -1714,6 +1706,9 @@ class Component extends DCLogic {
       return raw < 0 ? 0 : (raw > 1 ? 1 : raw);
     };
 
+    this.playheadFrame = 1;
+    this.targetPlayheadFrame = 1;
+
     // One render pass. `y` comes straight from Lenis when Lenis is driving, so
     // the image updates in the SAME frame the page moves in without frame-drag.
     this.renderTick = (y) => {
@@ -1728,13 +1723,34 @@ class Component extends DCLogic {
       }
       this.scrollY = next;
       const p = this.getScrollProgress();
-      const targetFrame = Math.max(1, Math.min(this.TOTAL_FRAMES, Math.round(p * (this.TOTAL_FRAMES - 1)) + 1));
-      const targetSpriteIndex = Math.ceil(targetFrame / 4);
+      this.targetPlayheadFrame = Math.max(1, Math.min(this.TOTAL_FRAMES, p * (this.TOTAL_FRAMES - 1) + 1));
+      const targetSpriteIndex = Math.ceil(this.targetPlayheadFrame / 4);
       if (!this.sprites[targetSpriteIndex]) {
-        this.fetchUrgentFrameChunk(targetFrame);
+        this.fetchUrgentFrameChunk(Math.round(this.targetPlayheadFrame));
       }
-      this.renderFrame(p);
+      this.renderFrame(p, Math.round(this.playheadFrame));
     };
+
+    // Sub-frame Continuous Playhead Lerp loop for buttery physical flywheel gliding
+    const playheadLoop = () => {
+      if (this.destroyed) return;
+      const diff = this.targetPlayheadFrame - this.playheadFrame;
+      if (Math.abs(diff) > 0.005) {
+        this.playheadFrame += diff * 0.28;
+        const currentFrame = Math.max(1, Math.min(this.TOTAL_FRAMES, Math.round(this.playheadFrame)));
+        if (!this.isMobile && this.canvas) {
+          if (currentFrame !== this.lastDrawnFrame) {
+            this.drawFrameOnCanvas(currentFrame);
+          }
+        }
+        if (this.frame && currentFrame !== this.lastFrameText) {
+          this.lastFrameText = currentFrame;
+          this.frame.textContent = 'FRAME ' + String(currentFrame).padStart(4, '0') + ' / ' + String(this.TOTAL_FRAMES).padStart(4, '0');
+        }
+      }
+      this.rafId = requestAnimationFrame(playheadLoop);
+    };
+    this.rafId = requestAnimationFrame(playheadLoop);
 
     this.markScrolling = () => {
       this.isScrolling = true;
@@ -1949,11 +1965,7 @@ class Component extends DCLogic {
       this.frame.textContent = 'FRAME ' + String(targetFrame).padStart(4, '0') + ' / ' + String(this.TOTAL_FRAMES).padStart(4, '0');
     }
 
-    if (!this.isMobile && this.canvas) {
-      if (targetFrame !== this.lastDrawnFrame) {
-        this.drawFrameOnCanvas(targetFrame);
-      }
-    }
+
 
     // Sync Vertical Sequence Rail Highlighting with exact 8-beat video sequence
     if (this.railItems && this.railItems.length > 0) {
