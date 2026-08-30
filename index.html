@@ -1411,21 +1411,15 @@ class Component extends DCLogic {
   }
 
   preloadAppleSpritesLOD() {
-    this.CDN_BASE_URL = 'https://ik.imagekit.io/dhiraj1995/';
+    this.SPRITE_PATH = 'assets/hero-sprites-v3/';
     this.sprites = {};
-
-    // High-performance cold-cache optimization:
-    // 2560px WebP tier (58KB/sheet) gives crisp 4K-like clarity on Retina canvases
-    // while reducing total 1,000-frame payload from 100MB+ down to just ~14MB total.
-    const isSmall = (window.innerWidth || 1280) <= 900;
-    this.SPRITE_TR = isSmall ? 'w-1920,q-70,f-webp' : 'w-2560,q-72,f-webp';
 
     const isWebKit = /^((?!chrome|android|crios|fxios|edg).)*safari/i.test(navigator.userAgent);
     this.useImageBitmap = isWebKit;
     // Allow all 250 sprites to stay hot in memory so no frame is ever evicted or re-downloaded
     this.MAX_SPRITES = 250;
 
-    // Method 08: Preload 4K Hero Poster immediately on millisecond 0 for instant start frame paint
+    // Method 08: Preload pristine 4K Hero Poster immediately on millisecond 0 for instant start frame paint
     this.posterImg = new Image();
     if ('fetchPriority' in this.posterImg) this.posterImg.fetchPriority = 'high';
     this.posterImg.onload = () => {
@@ -1434,7 +1428,7 @@ class Component extends DCLogic {
         this.drawFrameOnCanvas(1);
       }
     };
-    this.posterImg.src = 'assets/hero-poster/hero-poster.webp?v=v9_4k';
+    this.posterImg.src = 'assets/hero-poster/hero-poster.webp?v=v3_4k';
 
     this.inflight = new Set();
 
@@ -1443,7 +1437,7 @@ class Component extends DCLogic {
       if (this.inflight.has(spriteIndex)) return Promise.resolve();
       this.inflight.add(spriteIndex);
       return new Promise((resolve) => {
-        const src = `${this.CDN_BASE_URL}assets/hero-sprites-hd/sprite-hd-${String(spriteIndex).padStart(3, '0')}.webp?v=v8_hd&tr=${this.SPRITE_TR}`;
+        const src = `${this.SPRITE_PATH}sprite-v3-${String(spriteIndex).padStart(3, '0')}.webp?v=v3_crystal`;
         const img = new Image();
         if (priority === 'high' && 'fetchPriority' in img) img.fetchPriority = 'high';
         img.onload = () => {
@@ -1668,11 +1662,7 @@ class Component extends DCLogic {
       if (this.inflight.size >= MAX_INFLIGHT) break;
       if (!this.sprites[sIdx] && !this.inflight.has(sIdx)) {
         this.inflight.add(sIdx);
-        // Must match the gate's URL byte-for-byte (it includes v=v8_hd). These
-        // had drifted apart, so the same sheet occupied two separate HTTP cache
-        // entries and was downloaded twice — wasteful before, and actively
-        // harmful now that re-entering an evicted stretch depends on that cache.
-        const src = `${baseUrl}assets/hero-sprites-hd/sprite-hd-${String(sIdx).padStart(3, '0')}.webp?v=v8_hd&tr=${tr}`;
+        const src = `${this.SPRITE_PATH || 'assets/hero-sprites-v3/'}sprite-v3-${String(sIdx).padStart(3, '0')}.webp?v=v3_crystal`;
         const img = new Image();
         if ('fetchPriority' in img) img.fetchPriority = 'high';
         img.onload = () => {
