@@ -73,9 +73,7 @@
     top: calc(100% + 18px);
     left: -120px;
     width: 860px;
-    background: rgba(8, 19, 89, 0.96);
-    backdrop-filter: blur(24px);
-    -webkit-backdrop-filter: blur(24px);
+    background: rgba(8, 19, 89, 0.98);
     border: 1px solid rgba(184, 146, 93, 0.35);
     box-shadow: 0 24px 60px rgba(0,0,0,0.6);
     padding: 36px 40px;
@@ -99,7 +97,7 @@
     pointer-events: auto;
   }
   header.is-light .tpl-mega-menu {
-    background: rgba(255, 255, 255, 0.97);
+    background: rgba(255, 255, 255, 0.98);
     border: 1px solid rgba(184, 146, 93, 0.3);
     box-shadow: 0 20px 50px rgba(8, 19, 89, 0.14);
   }
@@ -109,21 +107,14 @@
   header.is-light .tpl-mega-card { background: #F8F6F3 !important; }
   header.is-light .tpl-mega-card div { color: #242424 !important; }
 
-  /* Services mega-menu — the full 20-treatment catalogue, previously only
-     reachable from the inner pages' own header. Distinct class from
-     .tpl-mega-menu (which is tuned for the Treatments dropdown's 3-column +
-     fixed-width promo card) because this one is 4 equal columns plus a
-     full-width footer bar, and needs its own independent open/close state
-     so clicking Treatments doesn't also pop this panel open. */
+  /* Services mega-menu */
   .tpl-services-mega {
     position: absolute;
     top: 100%;
     left: 50%;
     margin-top: 14px;
     width: min(1080px, calc(100vw - 48px));
-    background: rgba(8, 19, 89, 0.96);
-    backdrop-filter: blur(24px);
-    -webkit-backdrop-filter: blur(24px);
+    background: rgba(8, 19, 89, 0.98);
     border: 1px solid rgba(184, 146, 93, 0.35);
     box-shadow: 0 24px 60px rgba(0,0,0,0.6);
     padding: 34px 38px 30px;
@@ -1311,8 +1302,8 @@ class Component extends DCLogic {
 
         if (this.targetPlayheadFrame !== undefined && this.playheadFrame !== undefined) {
           const diff = this.targetPlayheadFrame - this.playheadFrame;
-          if (Math.abs(diff) > 0.004) {
-            this.playheadFrame += diff * 0.35;
+          if (Math.abs(diff) > 0.001) {
+            this.playheadFrame += diff * (isWebKit ? 0.42 : 0.35);
             const currentFrame = Math.max(1, Math.min(this.TOTAL_FRAMES, Math.round(this.playheadFrame)));
             if (!this.isMobile && this.canvas) {
               if (currentFrame !== this.lastDrawnFrame) {
