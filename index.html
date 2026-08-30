@@ -1297,26 +1297,22 @@ class Component extends DCLogic {
         }
 
         if (this.targetPlayheadFrame !== undefined && this.playheadFrame !== undefined) {
-          if (isWebKit) {
-            // Safari: Direct 1:1 hardware synchronization with macOS 120Hz trackpad inertia (Apple AirPods style)
-            this.playheadFrame = this.targetPlayheadFrame;
-          } else {
-            // Chrome/Firefox: Lenis virtual scroll + smooth interpolation
-            const diff = this.targetPlayheadFrame - this.playheadFrame;
-            if (Math.abs(diff) > 0.001) {
-              this.playheadFrame += diff * 0.35;
+          const diff = this.targetPlayheadFrame - this.playheadFrame;
+          if (Math.abs(diff) > 0.001) {
+            const lerpFactor = isWebKit ? 0.55 : 0.40;
+            this.playheadFrame += diff * lerpFactor;
+            const currentFrame = Math.max(1, Math.min(this.TOTAL_FRAMES, Math.round(this.playheadFrame)));
+            if (!this.isMobile && this.canvas) {
+              if (currentFrame !== this.lastDrawnFrame) {
+                this.drawFrameOnCanvas(currentFrame);
+              }
             }
-          }
-
-          const currentFrame = Math.max(1, Math.min(this.TOTAL_FRAMES, Math.round(this.playheadFrame)));
-          if (!this.isMobile && this.canvas) {
-            if (currentFrame !== this.lastDrawnFrame) {
-              this.drawFrameOnCanvas(currentFrame);
+            if (this.frame && currentFrame !== this.lastFrameText) {
+              this.lastFrameText = currentFrame;
+              this.frame.textContent = 'FRAME ' + String(currentFrame).padStart(4, '0') + ' / ' + String(this.TOTAL_FRAMES).padStart(4, '0');
             }
-          }
-          if (this.frame && currentFrame !== this.lastFrameText) {
-            this.lastFrameText = currentFrame;
-            this.frame.textContent = 'FRAME ' + String(currentFrame).padStart(4, '0') + ' / ' + String(this.TOTAL_FRAMES).padStart(4, '0');
+            const p = this.getScrollProgress ? this.getScrollProgress() : 0;
+            this.renderFrame(p, currentFrame);
           }
         }
 
@@ -1602,7 +1598,6 @@ class Component extends DCLogic {
       this.scrollY = next;
       const p = this.getScrollProgress();
       this.targetPlayheadFrame = Math.max(1, Math.min(this.TOTAL_FRAMES, p * (this.TOTAL_FRAMES - 1) + 1));
-      this.renderFrame(p, Math.round(this.playheadFrame));
     };
 
 
