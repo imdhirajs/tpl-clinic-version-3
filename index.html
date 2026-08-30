@@ -1277,9 +1277,15 @@ class Component extends DCLogic {
           direction: 'vertical',
           gestureDirection: 'vertical',
           smoothWheel: true,
-          wheelMultiplier: 0.95,
-          touchMultiplier: 1.2,
-          infini      // Apple-Grade Architecture: 300 Individual Crystal-Clear 1080p Frames (Quality 92)
+          infinite: false,
+        });
+
+        this.lenis.on('scroll', (e) => {
+          if (this.onLenisScroll) this.onLenisScroll(e.scroll);
+        });
+      }
+
+      // Apple-Grade Architecture: 300 Individual Crystal-Clear 1080p Frames (Quality 92)
       this.TOTAL_FRAMES = 300;
       this.frames = {};
 
@@ -1542,13 +1548,6 @@ class Component extends DCLogic {
     if (!this.canvas || !this.ctx || !this.targetW) return;
     this.drawSingleFrame(frameNum);
     this.lastDrawnFrame = frameNum;
-  }img.decode().catch(() => {});
-          }
-        };
-        img.onerror = () => { this.inflight.delete(sIdx); };
-        img.src = src;
-      }
-    }
   }
 
   initScrollEngine() {
