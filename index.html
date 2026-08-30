@@ -1128,7 +1128,7 @@ class Component extends DCLogic {
     // below) still spans the FULL beat so navigation context never drops.
     this.HOTSPOTS = [
       {
-        min: 70, max: 130,
+        min: 21, max: 39,
         cell: 'mid-right',
         tag: '02 — CONSULTATION',
         title: 'Not a Form. A Conversation.',
@@ -1139,7 +1139,7 @@ class Component extends DCLogic {
         ]
       },
       {
-        min: 175, max: 235,
+        min: 52, max: 70,
         cell: 'mid-right',
         tag: '03 — DIAGNOSTICS',
         title: 'The Cause, Not the Symptom',
@@ -1149,7 +1149,7 @@ class Component extends DCLogic {
         ]
       },
       {
-        min: 340, max: 515,
+        min: 102, max: 155,
         cell: 'bot-right',
         tag: '04 — HAIR TREATMENT',
         title: 'Your Own Biology, Concentrated',
@@ -1161,7 +1161,7 @@ class Component extends DCLogic {
         ]
       },
       {
-        min: 530, max: 630,
+        min: 159, max: 189,
         cell: 'mid-right',
         tag: '05 — BODY TREATMENT',
         title: 'Skin, Re-Engineered From Beneath',
@@ -1173,13 +1173,7 @@ class Component extends DCLogic {
         ]
       },
       {
-        // This beat cuts wide → extreme close-up → wide again (confirmed on
-        // frames 661/797 wide, 719/757 close-up filling the frame edge to
-        // edge with no clear corner at any point). Two entries, same tag/
-        // copy, cover both wide windows so the caption is present through
-        // nearly the whole beat; only the ~80-frame close-up itself (700-780)
-        // is left uncaptioned because there is nowhere safe to put it.
-        min: 645, max: 698,
+        min: 194, max: 209,
         cell: 'mid-right',
         tag: '06 — HAIR TRANSPLANT',
         title: 'A Hairline, Not a Hint of Surgery',
@@ -1189,7 +1183,7 @@ class Component extends DCLogic {
         ]
       },
       {
-        min: 782, max: 820,
+        min: 235, max: 246,
         cell: 'mid-right',
         tag: '06 — HAIR TRANSPLANT',
         title: 'A Hairline, Not a Hint of Surgery',
@@ -1199,7 +1193,7 @@ class Component extends DCLogic {
         ]
       },
       {
-        min: 850, max: 955,
+        min: 255, max: 286,
         cell: 'mid-right',
         tag: '07 — PHYSICIAN PRODUCTS',
         title: 'The Regimen Between Visits',
@@ -1209,7 +1203,7 @@ class Component extends DCLogic {
         ]
       },
       {
-        min: 965, max: 1000,
+        min: 290, max: 300,
         cell: 'mid-right',
         tag: '08 — TRUSTED BRANDS',
         title: "The Brands We'd Actually Recommend",
@@ -1285,13 +1279,9 @@ class Component extends DCLogic {
           smoothWheel: true,
           wheelMultiplier: 0.95,
           touchMultiplier: 1.2,
-          infinite: false,
-        });
-
-        this.lenis.on('scroll', (e) => {
-          if (this.onLenisScroll) this.onLenisScroll(e.scroll);
-        });
-      }
+          infini      // Apple-Grade Architecture: 300 Individual Crystal-Clear 1080p Frames (Quality 92)
+      this.TOTAL_FRAMES = 300;
+      this.frames = {};
 
       // Unified Master Ticker (1 single rAF loop for whole page)
       const masterLoop = (time) => {
@@ -1301,19 +1291,26 @@ class Component extends DCLogic {
         }
 
         if (this.targetPlayheadFrame !== undefined && this.playheadFrame !== undefined) {
-          const diff = this.targetPlayheadFrame - this.playheadFrame;
-          if (Math.abs(diff) > 0.001) {
-            this.playheadFrame += diff * (isWebKit ? 0.42 : 0.35);
-            const currentFrame = Math.max(1, Math.min(this.TOTAL_FRAMES, Math.round(this.playheadFrame)));
-            if (!this.isMobile && this.canvas) {
-              if (currentFrame !== this.lastDrawnFrame) {
-                this.drawFrameOnCanvas(currentFrame);
-              }
+          if (isWebKit) {
+            // Safari: Direct 1:1 hardware synchronization with macOS 120Hz trackpad inertia (Apple AirPods style)
+            this.playheadFrame = this.targetPlayheadFrame;
+          } else {
+            // Chrome/Firefox: Lenis virtual scroll + smooth interpolation
+            const diff = this.targetPlayheadFrame - this.playheadFrame;
+            if (Math.abs(diff) > 0.001) {
+              this.playheadFrame += diff * 0.35;
             }
-            if (this.frame && currentFrame !== this.lastFrameText) {
-              this.lastFrameText = currentFrame;
-              this.frame.textContent = 'FRAME ' + String(currentFrame).padStart(4, '0') + ' / ' + String(this.TOTAL_FRAMES).padStart(4, '0');
+          }
+
+          const currentFrame = Math.max(1, Math.min(this.TOTAL_FRAMES, Math.round(this.playheadFrame)));
+          if (!this.isMobile && this.canvas) {
+            if (currentFrame !== this.lastDrawnFrame) {
+              this.drawFrameOnCanvas(currentFrame);
             }
+          }
+          if (this.frame && currentFrame !== this.lastFrameText) {
+            this.lastFrameText = currentFrame;
+            this.frame.textContent = 'FRAME ' + String(currentFrame).padStart(4, '0') + ' / ' + String(this.TOTAL_FRAMES).padStart(4, '0');
           }
         }
 
@@ -1321,11 +1318,7 @@ class Component extends DCLogic {
       };
       this.animId = requestAnimationFrame(masterLoop);
 
-      // Hybrid Engine: 1080p HD Sprite Fallback (250 HD sheets, 4 frames/sheet 1920x1080) + Native 4K UHD Upgrade
-      this.TOTAL_SPRITES = Math.ceil(this.TOTAL_FRAMES / 4); // 250 HD sprites
-      this.sprites = {};
-
-      this.preloadAppleSpritesLOD();
+      this.preloadIndividualFrames();
       this.initScrollEngine();
     }
 
@@ -1370,16 +1363,7 @@ class Component extends DCLogic {
     const cssHeight = window.innerHeight;
     if (cssWidth <= 0 || cssHeight <= 0) return;
 
-    // Capped at 2x, matching preloadAppleSpritesLOD's sprite-fetch tier cap
-    // (idealSheetW also uses Math.min(devicePixelRatio, 2)) below. A canvas
-    // backing store bigger than 2.5x used to outrun the actual source pixels
-    // available above 2x displays — Safari's Canvas2D scaling cost tracks
-    // destination pixel count, so that mismatch meant paying extra draw cost
-    // on every scroll-driven frame for a result that couldn't get any sharper
-    // than the source anyway. Capping both at the same value removes the
-    // wasted upscale.
     const isWebKit = /^((?!chrome|android|crios|fxios|edg).)*safari/i.test(navigator.userAgent);
-    // Align canvas buffer to match 1080p source frame width (1920px) for 1:1 Metal texture blit
     const idealDpr = Math.min(window.devicePixelRatio || 1, 1920 / Math.max(cssWidth, 1));
     const dpr = Math.max(1, Math.min(idealDpr, 1.5));
 
@@ -1416,16 +1400,11 @@ class Component extends DCLogic {
     }
   }
 
-  preloadAppleSpritesLOD() {
-    this.SPRITE_PATH = 'assets/hero-sprites-v3/';
-    this.sprites = {};
+  preloadIndividualFrames() {
+    this.FRAME_PATH = 'assets/hero-frames/';
+    this.frames = {};
 
-    const isWebKit = /^((?!chrome|android|crios|fxios|edg).)*safari/i.test(navigator.userAgent);
-    // Standard HTMLImageElement with .decode() avoids WebKit ImageBitmap memory heap cliff
-    this.useImageBitmap = false;
-    this.MAX_SPRITES = 250;
-
-    // Method 08: Preload pristine 4K Hero Poster immediately on millisecond 0 for instant start frame paint
+    // Preload pristine 4K Hero Poster immediately on millisecond 0 for instant start frame paint
     this.posterImg = new Image();
     if ('fetchPriority' in this.posterImg) this.posterImg.fetchPriority = 'high';
     this.posterImg.onload = () => {
@@ -1438,18 +1417,18 @@ class Component extends DCLogic {
 
     this.inflight = new Set();
 
-    const fetchSprite = (spriteIndex, priority = 'low') => {
-      if (this.destroyed || this.sprites[spriteIndex]) return Promise.resolve();
-      if (this.inflight.has(spriteIndex)) return Promise.resolve();
-      this.inflight.add(spriteIndex);
+    const fetchFrame = (frameNum, priority = 'low') => {
+      if (this.destroyed || this.frames[frameNum]) return Promise.resolve();
+      if (this.inflight.has(frameNum)) return Promise.resolve();
+      this.inflight.add(frameNum);
       return new Promise((resolve) => {
-        const src = `${this.SPRITE_PATH}sprite-v3-${String(spriteIndex).padStart(3, '0')}.webp?v=v3_crystal`;
+        const src = `${this.FRAME_PATH}frame_${String(frameNum).padStart(4, '0')}.webp?v=v3_crystal`;
         const img = new Image();
         if (priority === 'high' && 'fetchPriority' in img) img.fetchPriority = 'high';
         img.onload = () => {
-          this.sprites[spriteIndex] = img;
-          this.inflight.delete(spriteIndex);
-          if (spriteIndex === 1 && (this.lastDrawnFrame === -1 || this.lastDrawnFrame === 1)) {
+          this.frames[frameNum] = img;
+          this.inflight.delete(frameNum);
+          if (frameNum === 1 && (this.lastDrawnFrame === -1 || this.lastDrawnFrame === 1)) {
             this.drawFrameOnCanvas(1);
           }
           if (img.decode) {
@@ -1458,12 +1437,12 @@ class Component extends DCLogic {
             resolve();
           }
         };
-        img.onerror = () => { this.inflight.delete(spriteIndex); resolve(); };
+        img.onerror = () => { this.inflight.delete(frameNum); resolve(); };
         img.src = src;
       });
     };
 
-    // Full-screen loading gate: load 100% of ALL 250 sheets (1,000 frames) before releasing scroll
+    // Full-screen loading gate: load 100% of ALL 300 frames before releasing scroll
     const loadingScreen = document.getElementById('tpl-loading-screen');
     const percentEl = document.getElementById('tpl-loading-percent');
     const barEl = document.getElementById('tpl-loading-bar');
@@ -1490,21 +1469,21 @@ class Component extends DCLogic {
 
     const gateSafety = setTimeout(releaseScroll, 12000);
 
-    // Concurrent parallel pipeline for all 250 sheets
+    // Concurrent parallel pipeline for all 300 individual frames
     let loadedCount = 0;
-    const CONCURRENCY = 14;
+    const CONCURRENCY = 16;
     let nextIdx = 1;
 
     const runWorker = () => {
-      if (this.destroyed || nextIdx > this.TOTAL_SPRITES) return Promise.resolve();
+      if (this.destroyed || nextIdx > this.TOTAL_FRAMES) return Promise.resolve();
       const current = nextIdx++;
-      return fetchSprite(current, 'high').then(() => {
+      return fetchFrame(current, 'high').then(() => {
         loadedCount++;
-        const pct = Math.min(100, Math.round((loadedCount / this.TOTAL_SPRITES) * 100));
+        const pct = Math.min(100, Math.round((loadedCount / this.TOTAL_FRAMES) * 100));
         if (percentEl) percentEl.textContent = pct + '%';
         if (barEl) barEl.style.width = pct + '%';
 
-        if (loadedCount >= this.TOTAL_SPRITES) {
+        if (loadedCount >= this.TOTAL_FRAMES) {
           clearTimeout(gateSafety);
           releaseScroll();
         } else {
@@ -1518,42 +1497,11 @@ class Component extends DCLogic {
     }
   }
 
-  // Hold all sprites in memory without premature eviction
-  trimSpriteCache(centerSprite) {
-    const keys = Object.keys(this.sprites);
-    const overBy = keys.length - this.MAX_SPRITES;
-    if (overBy <= 0) return;
-    const dir = this.scrollDir || 1;
-    keys
-      .map(k => {
-        const offset = (Number(k) - centerSprite) * dir;
-        return { k, dist: offset >= 0 ? offset : -offset * 2 };
-      })
-      .sort((a, b) => b.dist - a.dist)
-      .slice(0, overBy)
-      .forEach(({ k }) => {
-        const held = this.sprites[k];
-        delete this.sprites[k];
-        if (held && typeof held.close === 'function') {
-          try { held.close(); } catch (e) {}
-        }
-      });
-  }
-
-  // Turn a loaded <img> into whatever this engine should actually hold for it.
-  prepareSprite(img) {
-    if (!this.useImageBitmap || typeof createImageBitmap !== 'function') {
-      return Promise.resolve(img);
-    }
-    return createImageBitmap(img).catch(() => img);
-  }
-
-  findNearestLoadedSprite(spriteIndex) {
-    if (this.sprites[spriteIndex]) return spriteIndex;
-    // Monotonic Hold: Search BACKWARD FIRST so sequence never snaps into future
-    for (let delta = 1; delta <= 50; delta++) {
-      if (spriteIndex - delta >= 1 && this.sprites[spriteIndex - delta]) return spriteIndex - delta;
-      if (spriteIndex + delta <= this.TOTAL_SPRITES && this.sprites[spriteIndex + delta]) return spriteIndex + delta;
+  findNearestLoadedFrame(frameNum) {
+    if (this.frames[frameNum]) return frameNum;
+    for (let delta = 1; delta <= 30; delta++) {
+      if (frameNum - delta >= 1 && this.frames[frameNum - delta]) return frameNum - delta;
+      if (frameNum + delta <= this.TOTAL_FRAMES && this.frames[frameNum + delta]) return frameNum + delta;
     }
     return null;
   }
@@ -1569,37 +1517,23 @@ class Component extends DCLogic {
   }
 
   drawSingleFrame(frameNum) {
-    // Frame 1 is the resting frame — what every visitor stares at before they
-    // touch the scroll wheel. The 4K poster of it is already in memory and is
-    // measurably ~1.9x sharper than the 1920-wide sprite cell upscaled to a
-    // Retina canvas, so use it. Once the visitor scrolls off frame 1 the
-    // sequence takes over, and motion covers the handover.
     if (frameNum <= 1 && this.posterReady()) {
       this.drawPoster();
       return;
     }
 
-    const targetSpriteIndex = Math.ceil(frameNum / 4);
-    const spriteIndex = this.findNearestLoadedSprite(targetSpriteIndex);
-    const spriteImg = spriteIndex !== null ? this.sprites[spriteIndex] : null;
-    // A "held" frame is the visitor asking for a sheet that has not arrived, so
-    // the sequence freezes on a neighbour. This is the stall people actually
-    // perceive, and it is the number worth watching (see the ?perf=1 panel).
-    if (this._perf && spriteIndex !== targetSpriteIndex) this._perf.held++;
+    const resolvedIndex = this.findNearestLoadedFrame(frameNum);
+    const frameImg = resolvedIndex !== null ? this.frames[resolvedIndex] : null;
 
-    if (!spriteImg) {
+    if (!frameImg) {
       if (this.posterReady()) this.drawPoster();
       return;
     }
 
-    const idxInSprite = (spriteIndex === targetSpriteIndex) ? ((frameNum - 1) % 4) : 3;
-    const CELL_COORDS = [[0, 0], [1920, 0], [0, 1080], [1920, 1080]];
-    const [sx, sy] = CELL_COORDS[idxInSprite] || [0, 0];
-
     try {
-      this.ctx.drawImage(spriteImg, sx, sy, 1920, 1080, this.offsetX, this.offsetY, this.drawW, this.drawH);
+      // Direct 1-to-1 Metal GPU texture blit (0 coordinate slicing, 0 intermediate buffer allocation)
+      this.ctx.drawImage(frameImg, 0, 0, 1920, 1080, this.offsetX, this.offsetY, this.drawW, this.drawH);
     } catch (e) {
-      delete this.sprites[spriteIndex];
       if (this.posterReady()) this.drawPoster();
     }
   }
@@ -1608,46 +1542,7 @@ class Component extends DCLogic {
     if (!this.canvas || !this.ctx || !this.targetW) return;
     this.drawSingleFrame(frameNum);
     this.lastDrawnFrame = frameNum;
-  }
-
-  fetchUrgentFrameChunk(centerFrame) {
-    if (this.destroyed) return;
-    const centerSprite = Math.ceil(centerFrame / 4);
-    const baseUrl = this.CDN_BASE_URL || 'https://ik.imagekit.io/dhiraj1995/';
-    const tr = this.SPRITE_TR || 'q-75,f-auto';
-    const dir = this.scrollDir || 1;
-    // How many frames of reel does the current gesture cross per rendered
-    // frame? Aim to stay ~25 rendered frames (~0.4s) ahead of the playhead,
-    // floored so a standing start still has runway and capped so a hard flick
-    // cannot ask for the whole reel at once.
-    const pxPerFrame = (this.m && this.m.heroScrollable > 0)
-      ? this.m.heroScrollable / this.TOTAL_FRAMES : 6;
-    const framesAhead = Math.min(120, Math.max(48, (this.scrollSpeed || 0) * 25 / pxPerFrame));
-    const aheadSheets = Math.ceil(framesAhead / 4);
-    const behindSheets = 4;   // enough to absorb a quick direction reversal
-
-    const lo = dir > 0 ? centerSprite - behindSheets : centerSprite - aheadSheets;
-    const hi = dir > 0 ? centerSprite + aheadSheets : centerSprite + behindSheets;
-
-    // Fetch nearest-first: if the connection cannot keep up, the frames the
-    // visitor is about to hit still arrive before the far end of the window.
-    const order = [];
-    for (let sIdx = Math.max(1, lo); sIdx <= Math.min(this.TOTAL_SPRITES, hi); sIdx++) order.push(sIdx);
-    order.sort((a, b) => Math.abs(a - centerSprite) - Math.abs(b - centerSprite));
-
-    const MAX_INFLIGHT = 16;
-    for (const sIdx of order) {
-      if (this.inflight.size >= MAX_INFLIGHT) break;
-      if (!this.sprites[sIdx] && !this.inflight.has(sIdx)) {
-        this.inflight.add(sIdx);
-        const src = `${this.SPRITE_PATH || 'assets/hero-sprites-v3/'}sprite-v3-${String(sIdx).padStart(3, '0')}.webp?v=v3_crystal`;
-        const img = new Image();
-        if ('fetchPriority' in img) img.fetchPriority = 'high';
-        img.onload = () => {
-          this.sprites[sIdx] = img;
-          this.inflight.delete(sIdx);
-          if (img.decode) {
-            img.decode().catch(() => {});
+  }img.decode().catch(() => {});
           }
         };
         img.onerror = () => { this.inflight.delete(sIdx); };
@@ -1700,8 +1595,6 @@ class Component extends DCLogic {
     this.renderTick = (y) => {
       const next = (y !== undefined && y !== null) ? y : window.scrollY;
       if (next === this.scrollY) return;
-      // Which way is the visitor going, and how fast? The loader aims ahead of
-      // them; a fixed forward-biased window meant scrolling UP always outran it.
       if (this.scrollY !== undefined) {
         const delta = next - this.scrollY;
         if (delta !== 0) this.scrollDir = delta > 0 ? 1 : -1;
@@ -1710,10 +1603,6 @@ class Component extends DCLogic {
       this.scrollY = next;
       const p = this.getScrollProgress();
       this.targetPlayheadFrame = Math.max(1, Math.min(this.TOTAL_FRAMES, p * (this.TOTAL_FRAMES - 1) + 1));
-      const targetSpriteIndex = Math.ceil(this.targetPlayheadFrame / 4);
-      if (!this.sprites[targetSpriteIndex]) {
-        this.fetchUrgentFrameChunk(Math.round(this.targetPlayheadFrame));
-      }
       this.renderFrame(p, Math.round(this.playheadFrame));
     };
 
@@ -1777,14 +1666,12 @@ class Component extends DCLogic {
       const dt = t - p.last; p.last = t; p.frames++;
       if (dt > p.worst && p.frames > 5) p.worst = dt;
       if (p.frames % 15 === 0) {
-        const cached = Object.keys(this.sprites || {}).length;
+        const cached = Object.keys(this.frames || {}).length;
         el.textContent =
           'fps          ' + (1000 / Math.max(dt, 0.001)).toFixed(0) +
           '\nworst frame  ' + p.worst.toFixed(0) + ' ms' +
-          '\nheld frames  ' + p.held + '   <- stalls' +
-          '\nsheets       ' + cached + ' / ' + this.MAX_SPRITES +
+          '\nframes       ' + cached + ' / ' + this.TOTAL_FRAMES +
           '\nin flight    ' + (this.inflight ? this.inflight.size : 0) +
-          '\nbitmaps      ' + (this.useImageBitmap ? 'on (WebKit)' : 'off (<img>)') +
           '\nspeed        ' + (this.scrollSpeed || 0).toFixed(0) + ' px/f  dir ' + (this.scrollDir || 0);
       }
       requestAnimationFrame(tick);
@@ -1923,13 +1810,13 @@ class Component extends DCLogic {
     // Sync Vertical Sequence Rail Highlighting with exact 8-beat video sequence
     if (this.railItems && this.railItems.length > 0) {
       let activeIdx = 0;
-      if (targetFrame > 40 && targetFrame <= 160) activeIdx = 1;        // 02 CONSULTATION
-      else if (targetFrame > 160 && targetFrame <= 300) activeIdx = 2;  // 03 DIAGNOSTICS
-      else if (targetFrame > 300 && targetFrame <= 520) activeIdx = 3;  // 04 HAIR TREATMENT
-      else if (targetFrame > 520 && targetFrame <= 640) activeIdx = 4;  // 05 BODY TREATMENT
-      else if (targetFrame > 640 && targetFrame <= 820) activeIdx = 5;  // 06 HAIR TRANSPLANT
-      else if (targetFrame > 820 && targetFrame <= 960) activeIdx = 6;  // 07 PRODUCTS
-      else if (targetFrame > 960) activeIdx = 7;                       // 08 BRANDS
+      if (targetFrame > 12 && targetFrame <= 48) activeIdx = 1;        // 02 CONSULTATION
+      else if (targetFrame > 48 && targetFrame <= 90) activeIdx = 2;  // 03 DIAGNOSTICS
+      else if (targetFrame > 90 && targetFrame <= 156) activeIdx = 3;  // 04 HAIR TREATMENT
+      else if (targetFrame > 156 && targetFrame <= 192) activeIdx = 4; // 05 BODY TREATMENT
+      else if (targetFrame > 192 && targetFrame <= 246) activeIdx = 5; // 06 HAIR TRANSPLANT
+      else if (targetFrame > 246 && targetFrame <= 288) activeIdx = 6; // 07 PRODUCTS
+      else if (targetFrame > 288) activeIdx = 7;                       // 08 BRANDS
 
       if (activeIdx !== this.lastRailIdx) {
       this.lastRailIdx = activeIdx;
