@@ -1416,8 +1416,9 @@ class Component extends DCLogic {
 
     const isWebKit = /^((?!chrome|android|crios|fxios|edg).)*safari/i.test(navigator.userAgent);
     this.useImageBitmap = isWebKit;
-    // Allow all 250 sprites to stay hot in memory so no frame is ever evicted or re-downloaded
-    this.MAX_SPRITES = 250;
+    // Safari gets a high-performance sliding buffer of 36 sheets (144 frames hot)
+    // to prevent Safari's strict 1.5GB tab memory warning cliff, while Chrome holds all 250.
+    this.MAX_SPRITES = isWebKit ? 36 : 250;
 
     // Method 08: Preload pristine 4K Hero Poster immediately on millisecond 0 for instant start frame paint
     this.posterImg = new Image();
@@ -1460,16 +1461,10 @@ class Component extends DCLogic {
       });
     };
 
-    // Full-screen loading gate: preload dense arrival window (50 sheets = 200 frames) + skeleton
+    // Full-screen loading gate: load 100% of ALL 250 sheets (1,000 frames) before releasing scroll
     const loadingScreen = document.getElementById('tpl-loading-screen');
     const percentEl = document.getElementById('tpl-loading-percent');
     const barEl = document.getElementById('tpl-loading-bar');
-
-    const GATE_DENSE = 50;
-    const gateSet = [];
-    for (let s = 1; s <= Math.min(GATE_DENSE, this.TOTAL_SPRITES); s++) gateSet.push(s);
-    for (let s = GATE_DENSE + 1; s <= this.TOTAL_SPRITES; s += 8) gateSet.push(s);
-    if (gateSet[gateSet.length - 1] !== this.TOTAL_SPRITES) gateSet.push(this.TOTAL_SPRITES);
 
     let released = false;
     const releaseScroll = () => {
@@ -1484,25 +1479,6 @@ class Component extends DCLogic {
         loadingScreen.style.opacity = '0';
         setTimeout(() => { loadingScreen.style.display = 'none'; }, 700);
       }
-
-      // Start multi-worker parallel background prefetcher (8 parallel streams)
-      const CONCURRENCY = 8;
-      let nextIdx = 1;
-      const worker = () => {
-        if (this.destroyed) return;
-        while (nextIdx <= this.TOTAL_SPRITES && (this.sprites[nextIdx] || this.inflight.has(nextIdx))) {
-          nextIdx++;
-        }
-        if (nextIdx <= this.TOTAL_SPRITES) {
-          const current = nextIdx++;
-          fetchSprite(current, 'low').then(() => {
-            setTimeout(worker, 15);
-          });
-        }
-      };
-      for (let w = 0; w < CONCURRENCY; w++) {
-        worker();
-      }
     };
 
     // Lock scroll during the gate
@@ -1510,21 +1486,34 @@ class Component extends DCLogic {
     document.documentElement.style.overflow = 'hidden';
     window.scrollTo(0, 0);
 
-    const gateSafety = setTimeout(releaseScroll, 6000);
+    const gateSafety = setTimeout(releaseScroll, 12000);
 
+    // Concurrent parallel pipeline for all 250 sheets
     let loadedCount = 0;
-    Promise.all(gateSet.map(s => fetchSprite(s, 'high').then(() => {
-      loadedCount++;
-      const pct = Math.round((loadedCount / gateSet.length) * 100);
-      if (percentEl) percentEl.textContent = pct + '%';
-      if (barEl) barEl.style.width = pct + '%';
-    }))).then(async () => {
-      clearTimeout(gateSafety);
-      releaseScroll();
-    }).catch(() => {
-      clearTimeout(gateSafety);
-      releaseScroll();
-    });
+    const CONCURRENCY = 14;
+    let nextIdx = 1;
+
+    const runWorker = () => {
+      if (this.destroyed || nextIdx > this.TOTAL_SPRITES) return Promise.resolve();
+      const current = nextIdx++;
+      return fetchSprite(current, 'high').then(() => {
+        loadedCount++;
+        const pct = Math.min(100, Math.round((loadedCount / this.TOTAL_SPRITES) * 100));
+        if (percentEl) percentEl.textContent = pct + '%';
+        if (barEl) barEl.style.width = pct + '%';
+
+        if (loadedCount >= this.TOTAL_SPRITES) {
+          clearTimeout(gateSafety);
+          releaseScroll();
+        } else {
+          return runWorker();
+        }
+      });
+    };
+
+    for (let w = 0; w < CONCURRENCY; w++) {
+      runWorker();
+    }
   }
 
   // Hold all sprites in memory without premature eviction
