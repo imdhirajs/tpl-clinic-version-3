@@ -1593,11 +1593,11 @@ class Component extends DCLogic {
     }
 
     const idxInSprite = (spriteIndex === targetSpriteIndex) ? ((frameNum - 1) % 4) : 3;
-    const CELL_COORDS = [[0, 0], [1920, 0], [0, 1080], [1920, 1080]];
+    const CELL_COORDS = [[0, 0], [1280, 0], [0, 720], [1280, 720]];
     const [sx, sy] = CELL_COORDS[idxInSprite] || [0, 0];
 
     try {
-      this.ctx.drawImage(spriteImg, sx, sy, 1920, 1080, this.offsetX, this.offsetY, this.drawW, this.drawH);
+      this.ctx.drawImage(spriteImg, sx, sy, 1280, 720, this.offsetX, this.offsetY, this.drawW, this.drawH);
     } catch (e) {
       delete this.sprites[spriteIndex];
       if (this.posterReady()) this.drawPoster();
