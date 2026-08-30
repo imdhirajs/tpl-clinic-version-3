@@ -1281,8 +1281,11 @@ class Component extends DCLogic {
       // critical path, for a value with no consumer. The poster is loaded and
       // drawn by `this.posterImg` in preloadAppleSpritesLOD below.)
 
-      // Initialize Lenis Smooth Scroll with butter-smooth easing & momentum
-      if (typeof window.Lenis !== 'undefined') {
+      const isWebKit = /^((?!chrome|android|crios|fxios|edg).)*safari/i.test(navigator.userAgent);
+
+      // In Chrome/Edge/Firefox: Initialize Lenis for smooth virtual scroll
+      // In Safari: Use Apple's Native 120Hz Metal Inertial Scroll (avoids window.scrollTo layout thrashing in WebKit)
+      if (!isWebKit && typeof window.Lenis !== 'undefined') {
         this.lenis = new window.Lenis({
           duration: 0.95,
           easing: (t) => Math.min(1, 1.001 - Math.pow(2, -10 * t)),
@@ -1294,38 +1297,38 @@ class Component extends DCLogic {
           infinite: false,
         });
 
-        // Unified Master Ticker (1 single rAF loop for whole page)
-        const masterLoop = (time) => {
-          if (this.destroyed) return;
-          if (this.lenis) {
-            this.lenis.raf(time);
-          }
-
-          if (this.targetPlayheadFrame !== undefined && this.playheadFrame !== undefined) {
-            const diff = this.targetPlayheadFrame - this.playheadFrame;
-            if (Math.abs(diff) > 0.004) {
-              this.playheadFrame += diff * 0.35;
-              const currentFrame = Math.max(1, Math.min(this.TOTAL_FRAMES, Math.round(this.playheadFrame)));
-              if (!this.isMobile && this.canvas) {
-                if (currentFrame !== this.lastDrawnFrame) {
-                  this.drawFrameOnCanvas(currentFrame);
-                }
-              }
-              if (this.frame && currentFrame !== this.lastFrameText) {
-                this.lastFrameText = currentFrame;
-                this.frame.textContent = 'FRAME ' + String(currentFrame).padStart(4, '0') + ' / ' + String(this.TOTAL_FRAMES).padStart(4, '0');
-              }
-            }
-          }
-
-          this.animId = requestAnimationFrame(masterLoop);
-        };
-        this.animId = requestAnimationFrame(masterLoop);
-
         this.lenis.on('scroll', (e) => {
           if (this.onLenisScroll) this.onLenisScroll(e.scroll);
         });
       }
+
+      // Unified Master Ticker (1 single rAF loop for whole page)
+      const masterLoop = (time) => {
+        if (this.destroyed) return;
+        if (this.lenis) {
+          this.lenis.raf(time);
+        }
+
+        if (this.targetPlayheadFrame !== undefined && this.playheadFrame !== undefined) {
+          const diff = this.targetPlayheadFrame - this.playheadFrame;
+          if (Math.abs(diff) > 0.004) {
+            this.playheadFrame += diff * 0.35;
+            const currentFrame = Math.max(1, Math.min(this.TOTAL_FRAMES, Math.round(this.playheadFrame)));
+            if (!this.isMobile && this.canvas) {
+              if (currentFrame !== this.lastDrawnFrame) {
+                this.drawFrameOnCanvas(currentFrame);
+              }
+            }
+            if (this.frame && currentFrame !== this.lastFrameText) {
+              this.lastFrameText = currentFrame;
+              this.frame.textContent = 'FRAME ' + String(currentFrame).padStart(4, '0') + ' / ' + String(this.TOTAL_FRAMES).padStart(4, '0');
+            }
+          }
+        }
+
+        this.animId = requestAnimationFrame(masterLoop);
+      };
+      this.animId = requestAnimationFrame(masterLoop);
 
       // Hybrid Engine: 1080p HD Sprite Fallback (250 HD sheets, 4 frames/sheet 1920x1080) + Native 4K UHD Upgrade
       this.TOTAL_SPRITES = Math.ceil(this.TOTAL_FRAMES / 4); // 250 HD sprites
