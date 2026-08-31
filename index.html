@@ -1418,25 +1418,26 @@ class Component extends DCLogic {
   }
 
   preloadAppleSpritesLOD() {
-    this.SPRITE_PATH = 'assets/hero-sprites-v3/';
+    this.CDN_BASE_URL = 'https://ik.imagekit.io/dhiraj1995/';
     this.sprites = {};
 
-    const isWebKit = /^((?!chrome|android|crios|fxios|edg).)*safari/i.test(navigator.userAgent);
-    // Standard HTMLImageElement with .decode() avoids WebKit ImageBitmap memory heap cliff
-    this.useImageBitmap = false;
-    // Sliding window buffer: keeps memory lean (~140MB) so WebKit/Safari never drops GPU textures
-    this.MAX_SPRITES = isWebKit ? 60 : 80;
+    const isSmall = (window.innerWidth || 1280) <= 900;
+    this.SPRITE_TR = isSmall ? 'w-1920,q-70,f-webp' : 'w-2560,q-72,f-webp';
 
-    // Method 08: Preload pristine 4K Hero Poster immediately on millisecond 0 for instant start frame paint
+    const isWebKit = /^((?!chrome|android|crios|fxios|edg).)*safari/i.test(navigator.userAgent);
+    this.useImageBitmap = isWebKit;
+    this.MAX_SPRITES = isWebKit ? 70 : 120;
+
+    // Pristine 4K Master Poster on millisecond 0 for stunning 1st impression
     this.posterImg = new Image();
     if ('fetchPriority' in this.posterImg) this.posterImg.fetchPriority = 'high';
     this.posterImg.onload = () => {
-      if (this.lastDrawnFrame <= 1) {
+      if (this.lastDrawnFrame <= 2) {
         this.lastDrawnFrame = -1;
         this.drawFrameOnCanvas(1);
       }
     };
-    this.posterImg.src = 'assets/hero-poster/hero-poster.webp?v=v3_4k';
+    this.posterImg.src = 'assets/hero-poster/hero-poster.webp?v=v9_4k';
 
     this.inflight = new Set();
 
@@ -1445,28 +1446,37 @@ class Component extends DCLogic {
       if (this.inflight.has(spriteIndex)) return Promise.resolve();
       this.inflight.add(spriteIndex);
       return new Promise((resolve) => {
-        const src = `${this.SPRITE_PATH}sprite-v3-${String(spriteIndex).padStart(3, '0')}.webp?v=v3_crystal`;
+        const src = `${this.CDN_BASE_URL}assets/hero-sprites-hd/sprite-hd-${String(spriteIndex).padStart(3, '0')}.webp?v=v8_hd&tr=${this.SPRITE_TR}`;
         const img = new Image();
         if (priority === 'high' && 'fetchPriority' in img) img.fetchPriority = 'high';
         img.onload = () => {
-          this.sprites[spriteIndex] = img;
-          this.inflight.delete(spriteIndex);
-          if (spriteIndex === 1 && (this.lastDrawnFrame === -1 || this.lastDrawnFrame === 1)) {
-            this.drawFrameOnCanvas(1);
-          }
-          if (img.decode) {
-            img.decode().then(() => resolve()).catch(() => resolve());
-          } else {
+          let settled = false;
+          const publish = (prepared) => {
+            if (settled) return; settled = true;
+            this.sprites[spriteIndex] = prepared || img;
+            this.inflight.delete(spriteIndex);
+            if (spriteIndex === 1 && (this.lastDrawnFrame === -1 || this.lastDrawnFrame <= 2)) {
+              this.drawFrameOnCanvas(1);
+            }
             resolve();
-          }
+          };
+          const ready = img.decode ? img.decode().catch(() => {}) : Promise.resolve();
+          ready.then(() => this.prepareSprite(img)).then(publish, () => publish());
+          setTimeout(() => { if (!settled) this.prepareSprite(img).then(publish, () => publish()); }, 2000);
         };
         img.onerror = () => { this.inflight.delete(spriteIndex); resolve(); };
         img.src = src;
       });
     };
+    this.fetchSprite = fetchSprite;
 
-    // High-performance Runway Gate: Guarantee first 35 sheets (140 frames) are 100% decoded before releasing scroll
-    const RUNWAY_SPRITES = 35;
+    // High-performance Runway Gate: Guarantee first 40 sheets (160 frames) + skeleton are ready
+    const GATE_DENSE = 40;
+    const gateSet = [];
+    for (let s = 1; s <= Math.min(GATE_DENSE, this.TOTAL_SPRITES); s++) gateSet.push(s);
+    for (let s = GATE_DENSE + 1; s <= this.TOTAL_SPRITES; s += 8) gateSet.push(s);
+    if (gateSet[gateSet.length - 1] !== this.TOTAL_SPRITES) gateSet.push(this.TOTAL_SPRITES);
+
     const loadingScreen = document.getElementById('tpl-loading-screen');
     const percentEl = document.getElementById('tpl-loading-percent');
     const barEl = document.getElementById('tpl-loading-bar');
@@ -1484,8 +1494,25 @@ class Component extends DCLogic {
         loadingScreen.style.opacity = '0';
         setTimeout(() => { loadingScreen.style.display = 'none'; }, 600);
       }
-      // Start streaming remaining sheets smoothly in the background with orderly concurrency
-      startBackgroundStreamer();
+
+      // Background streamer
+      const CONCURRENCY = 6;
+      let nextIdx = 1;
+      const worker = () => {
+        if (this.destroyed) return;
+        while (nextIdx <= this.TOTAL_SPRITES && (this.sprites[nextIdx] || this.inflight.has(nextIdx))) {
+          nextIdx++;
+        }
+        if (nextIdx <= this.TOTAL_SPRITES) {
+          const current = nextIdx++;
+          fetchSprite(current, 'low').then(() => {
+            setTimeout(worker, 15);
+          });
+        }
+      };
+      for (let w = 0; w < CONCURRENCY; w++) {
+        worker();
+      }
     };
 
     // Lock scroll during the gate
@@ -1493,53 +1520,21 @@ class Component extends DCLogic {
     document.documentElement.style.overflow = 'hidden';
     window.scrollTo(0, 0);
 
-    const gateSafety = setTimeout(releaseScroll, 6000);
+    const gateSafety = setTimeout(releaseScroll, 5000);
 
-    // 1. Initial Runway Loader: Fast, guaranteed 60fps start sequence
-    let loadedRunway = 0;
-    const RUNWAY_CONCURRENCY = 6;
-    let nextRunwayIdx = 1;
-
-    const runRunwayWorker = () => {
-      if (this.destroyed || nextRunwayIdx > RUNWAY_SPRITES) return Promise.resolve();
-      const current = nextRunwayIdx++;
-      return fetchSprite(current, 'high').then(() => {
-        loadedRunway++;
-        const pct = Math.min(100, Math.round((loadedRunway / RUNWAY_SPRITES) * 100));
-        if (percentEl) percentEl.textContent = pct + '%';
-        if (barEl) barEl.style.width = pct + '%';
-
-        if (loadedRunway >= RUNWAY_SPRITES) {
-          clearTimeout(gateSafety);
-          releaseScroll();
-        } else {
-          return runRunwayWorker();
-        }
-      });
-    };
-
-    for (let w = 0; w < RUNWAY_CONCURRENCY; w++) {
-      runRunwayWorker();
-    }
-
-    // 2. Smooth Background Streamer (Orderly batches, zero thread starvation)
-    let bgIdx = RUNWAY_SPRITES + 1;
-    const BG_CONCURRENCY = 4;
-    const startBackgroundStreamer = () => {
-      const runBgWorker = () => {
-        if (this.destroyed || bgIdx > this.TOTAL_SPRITES) return Promise.resolve();
-        const current = bgIdx++;
-        if (this.sprites[current]) return runBgWorker();
-        return fetchSprite(current, 'low').then(() => {
-          if (!this.destroyed && bgIdx <= this.TOTAL_SPRITES) {
-            return runBgWorker();
-          }
-        });
-      };
-      for (let b = 0; b < BG_CONCURRENCY; b++) {
-        runBgWorker();
-      }
-    };
+    let loadedCount = 0;
+    Promise.all(gateSet.map(s => fetchSprite(s, 'high').then(() => {
+      loadedCount++;
+      const pct = Math.round((loadedCount / gateSet.length) * 100);
+      if (percentEl) percentEl.textContent = pct + '%';
+      if (barEl) barEl.style.width = pct + '%';
+    }))).then(() => {
+      clearTimeout(gateSafety);
+      releaseScroll();
+    }).catch(() => {
+      clearTimeout(gateSafety);
+      releaseScroll();
+    });
   }
 
   // Active Sliding Window Cache Manager (WebKit Memory Protection)
@@ -1558,7 +1553,9 @@ class Component extends DCLogic {
       .forEach(({ k }) => {
         const held = this.sprites[k];
         delete this.sprites[k];
-        if (held) {
+        if (held && typeof held.close === 'function') {
+          try { held.close(); } catch (e) {}
+        } else if (held) {
           held.onload = null;
           held.onerror = null;
           held.src = '';
@@ -1595,12 +1592,8 @@ class Component extends DCLogic {
   }
 
   drawSingleFrame(frameNum) {
-    // Frame 1 is the resting frame — what every visitor stares at before they
-    // touch the scroll wheel. The 4K poster of it is already in memory and is
-    // measurably ~1.9x sharper than the 1920-wide sprite cell upscaled to a
-    // Retina canvas, so use it. Once the visitor scrolls off frame 1 the
-    // sequence takes over, and motion covers the handover.
-    if (frameNum <= 1 && this.posterReady()) {
+    // Frame 1 and 2: pristine 4K master poster for flawless first impression
+    if (frameNum <= 2 && this.posterReady()) {
       this.drawPoster();
       return;
     }
@@ -1608,9 +1601,6 @@ class Component extends DCLogic {
     const targetSpriteIndex = Math.ceil(frameNum / 4);
     const spriteIndex = this.findNearestLoadedSprite(targetSpriteIndex);
     const spriteImg = spriteIndex !== null ? this.sprites[spriteIndex] : null;
-    // A "held" frame is the visitor asking for a sheet that has not arrived, so
-    // the sequence freezes on a neighbour. This is the stall people actually
-    // perceive, and it is the number worth watching (see the ?perf=1 panel).
     if (this._perf && spriteIndex !== targetSpriteIndex) this._perf.held++;
 
     if (!spriteImg) {
@@ -1619,11 +1609,21 @@ class Component extends DCLogic {
     }
 
     const idxInSprite = (spriteIndex === targetSpriteIndex) ? ((frameNum - 1) % 4) : 3;
-    const CELL_COORDS = [[0, 0], [1920, 0], [0, 1080], [1920, 1080]];
-    const [sx, sy] = CELL_COORDS[idxInSprite] || [0, 0];
+    const cellCol = idxInSprite % 2;
+    const cellRow = Math.floor(idxInSprite / 2);
+
+    const nw = spriteImg.naturalWidth || spriteImg.width || (spriteImg instanceof ImageBitmap ? spriteImg.width : 3840);
+    const nh = spriteImg.naturalHeight || spriteImg.height || (spriteImg instanceof ImageBitmap ? spriteImg.height : 2160);
+    const cellW = nw / 2;
+    const cellH = nh / 2;
+
+    const sx = cellCol * cellW;
+    const sy = cellRow * cellH;
+    const sw = cellW;
+    const sh = cellH;
 
     try {
-      this.ctx.drawImage(spriteImg, sx, sy, 1920, 1080, this.offsetX, this.offsetY, this.drawW, this.drawH);
+      this.ctx.drawImage(spriteImg, sx, sy, sw, sh, this.offsetX, this.offsetY, this.drawW, this.drawH);
     } catch (e) {
       delete this.sprites[spriteIndex];
       if (this.posterReady()) this.drawPoster();
@@ -1637,7 +1637,7 @@ class Component extends DCLogic {
   }
 
   fetchUrgentFrameChunk(centerFrame) {
-    if (this.destroyed) return;
+    if (this.destroyed || !this.fetchSprite) return;
     const centerSprite = Math.ceil(centerFrame / 4);
     this.trimSpriteCache(centerSprite);
     const dir = this.scrollDir || 1;
@@ -1655,19 +1655,7 @@ class Component extends DCLogic {
     for (const sIdx of order) {
       if (this.inflight.size >= MAX_INFLIGHT) break;
       if (!this.sprites[sIdx] && !this.inflight.has(sIdx)) {
-        this.inflight.add(sIdx);
-        const src = `${this.SPRITE_PATH || 'assets/hero-sprites-v3/'}sprite-v3-${String(sIdx).padStart(3, '0')}.webp?v=v3_crystal`;
-        const img = new Image();
-        if ('fetchPriority' in img) img.fetchPriority = 'high';
-        img.onload = () => {
-          this.sprites[sIdx] = img;
-          this.inflight.delete(sIdx);
-          if (img.decode) {
-            img.decode().catch(() => {});
-          }
-        };
-        img.onerror = () => { this.inflight.delete(sIdx); };
-        img.src = src;
+        this.fetchSprite(sIdx, 'high');
       }
     }
   }
