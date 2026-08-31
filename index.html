@@ -1303,7 +1303,8 @@ class Component extends DCLogic {
         if (this.targetPlayheadFrame !== undefined && this.playheadFrame !== undefined) {
           const diff = this.targetPlayheadFrame - this.playheadFrame;
           if (Math.abs(diff) > 0.001) {
-            this.playheadFrame += diff * (isWebKit ? 0.42 : 0.35);
+            this.playheadFrame += diff * (isWebKit ? 0.65 : 0.70);
+            if (Math.abs(diff) < 0.05) this.playheadFrame = this.targetPlayheadFrame;
             const currentFrame = Math.max(1, Math.min(this.TOTAL_FRAMES, Math.round(this.playheadFrame)));
             if (!this.isMobile && this.canvas) {
               if (currentFrame !== this.lastDrawnFrame) {
@@ -1423,7 +1424,8 @@ class Component extends DCLogic {
     const isWebKit = /^((?!chrome|android|crios|fxios|edg).)*safari/i.test(navigator.userAgent);
     // Standard HTMLImageElement with .decode() avoids WebKit ImageBitmap memory heap cliff
     this.useImageBitmap = false;
-    this.MAX_SPRITES = 250;
+    // Sliding window buffer: keeps memory lean (~140MB) so WebKit/Safari never drops GPU textures
+    this.MAX_SPRITES = isWebKit ? 60 : 80;
 
     // Method 08: Preload pristine 4K Hero Poster immediately on millisecond 0 for instant start frame paint
     this.posterImg = new Image();
@@ -1463,7 +1465,8 @@ class Component extends DCLogic {
       });
     };
 
-    // Full-screen loading gate: load 100% of ALL 250 sheets (1,000 frames) before releasing scroll
+    // High-performance Runway Gate: Guarantee first 35 sheets (140 frames) are 100% decoded before releasing scroll
+    const RUNWAY_SPRITES = 35;
     const loadingScreen = document.getElementById('tpl-loading-screen');
     const percentEl = document.getElementById('tpl-loading-percent');
     const barEl = document.getElementById('tpl-loading-bar');
@@ -1479,8 +1482,10 @@ class Component extends DCLogic {
       if (barEl) barEl.style.width = '100%';
       if (loadingScreen) {
         loadingScreen.style.opacity = '0';
-        setTimeout(() => { loadingScreen.style.display = 'none'; }, 700);
+        setTimeout(() => { loadingScreen.style.display = 'none'; }, 600);
       }
+      // Start streaming remaining sheets smoothly in the background with orderly concurrency
+      startBackgroundStreamer();
     };
 
     // Lock scroll during the gate
@@ -1488,37 +1493,56 @@ class Component extends DCLogic {
     document.documentElement.style.overflow = 'hidden';
     window.scrollTo(0, 0);
 
-    const gateSafety = setTimeout(releaseScroll, 12000);
+    const gateSafety = setTimeout(releaseScroll, 6000);
 
-    // Concurrent parallel pipeline for all 250 sheets
-    let loadedCount = 0;
-    const CONCURRENCY = 14;
-    let nextIdx = 1;
+    // 1. Initial Runway Loader: Fast, guaranteed 60fps start sequence
+    let loadedRunway = 0;
+    const RUNWAY_CONCURRENCY = 6;
+    let nextRunwayIdx = 1;
 
-    const runWorker = () => {
-      if (this.destroyed || nextIdx > this.TOTAL_SPRITES) return Promise.resolve();
-      const current = nextIdx++;
+    const runRunwayWorker = () => {
+      if (this.destroyed || nextRunwayIdx > RUNWAY_SPRITES) return Promise.resolve();
+      const current = nextRunwayIdx++;
       return fetchSprite(current, 'high').then(() => {
-        loadedCount++;
-        const pct = Math.min(100, Math.round((loadedCount / this.TOTAL_SPRITES) * 100));
+        loadedRunway++;
+        const pct = Math.min(100, Math.round((loadedRunway / RUNWAY_SPRITES) * 100));
         if (percentEl) percentEl.textContent = pct + '%';
         if (barEl) barEl.style.width = pct + '%';
 
-        if (loadedCount >= this.TOTAL_SPRITES) {
+        if (loadedRunway >= RUNWAY_SPRITES) {
           clearTimeout(gateSafety);
           releaseScroll();
         } else {
-          return runWorker();
+          return runRunwayWorker();
         }
       });
     };
 
-    for (let w = 0; w < CONCURRENCY; w++) {
-      runWorker();
+    for (let w = 0; w < RUNWAY_CONCURRENCY; w++) {
+      runRunwayWorker();
     }
+
+    // 2. Smooth Background Streamer (Orderly batches, zero thread starvation)
+    let bgIdx = RUNWAY_SPRITES + 1;
+    const BG_CONCURRENCY = 4;
+    const startBackgroundStreamer = () => {
+      const runBgWorker = () => {
+        if (this.destroyed || bgIdx > this.TOTAL_SPRITES) return Promise.resolve();
+        const current = bgIdx++;
+        if (this.sprites[current]) return runBgWorker();
+        return fetchSprite(current, 'low').then(() => {
+          if (!this.destroyed && bgIdx <= this.TOTAL_SPRITES) {
+            return runBgWorker();
+          }
+        });
+      };
+      for (let b = 0; b < BG_CONCURRENCY; b++) {
+        runBgWorker();
+      }
+    };
   }
 
-  // Hold all sprites in memory without premature eviction
+  // Active Sliding Window Cache Manager (WebKit Memory Protection)
   trimSpriteCache(centerSprite) {
     const keys = Object.keys(this.sprites);
     const overBy = keys.length - this.MAX_SPRITES;
@@ -1534,8 +1558,10 @@ class Component extends DCLogic {
       .forEach(({ k }) => {
         const held = this.sprites[k];
         delete this.sprites[k];
-        if (held && typeof held.close === 'function') {
-          try { held.close(); } catch (e) {}
+        if (held) {
+          held.onload = null;
+          held.onerror = null;
+          held.src = '';
         }
       });
   }
@@ -1613,29 +1639,19 @@ class Component extends DCLogic {
   fetchUrgentFrameChunk(centerFrame) {
     if (this.destroyed) return;
     const centerSprite = Math.ceil(centerFrame / 4);
-    const baseUrl = this.CDN_BASE_URL || 'https://ik.imagekit.io/dhiraj1995/';
-    const tr = this.SPRITE_TR || 'q-75,f-auto';
+    this.trimSpriteCache(centerSprite);
     const dir = this.scrollDir || 1;
-    // How many frames of reel does the current gesture cross per rendered
-    // frame? Aim to stay ~25 rendered frames (~0.4s) ahead of the playhead,
-    // floored so a standing start still has runway and capped so a hard flick
-    // cannot ask for the whole reel at once.
-    const pxPerFrame = (this.m && this.m.heroScrollable > 0)
-      ? this.m.heroScrollable / this.TOTAL_FRAMES : 6;
-    const framesAhead = Math.min(120, Math.max(48, (this.scrollSpeed || 0) * 25 / pxPerFrame));
-    const aheadSheets = Math.ceil(framesAhead / 4);
-    const behindSheets = 4;   // enough to absorb a quick direction reversal
+    const aheadSheets = 16;
+    const behindSheets = 8;
 
     const lo = dir > 0 ? centerSprite - behindSheets : centerSprite - aheadSheets;
     const hi = dir > 0 ? centerSprite + aheadSheets : centerSprite + behindSheets;
 
-    // Fetch nearest-first: if the connection cannot keep up, the frames the
-    // visitor is about to hit still arrive before the far end of the window.
     const order = [];
     for (let sIdx = Math.max(1, lo); sIdx <= Math.min(this.TOTAL_SPRITES, hi); sIdx++) order.push(sIdx);
     order.sort((a, b) => Math.abs(a - centerSprite) - Math.abs(b - centerSprite));
 
-    const MAX_INFLIGHT = 16;
+    const MAX_INFLIGHT = 8;
     for (const sIdx of order) {
       if (this.inflight.size >= MAX_INFLIGHT) break;
       if (!this.sprites[sIdx] && !this.inflight.has(sIdx)) {
@@ -1710,10 +1726,7 @@ class Component extends DCLogic {
       this.scrollY = next;
       const p = this.getScrollProgress();
       this.targetPlayheadFrame = Math.max(1, Math.min(this.TOTAL_FRAMES, p * (this.TOTAL_FRAMES - 1) + 1));
-      const targetSpriteIndex = Math.ceil(this.targetPlayheadFrame / 4);
-      if (!this.sprites[targetSpriteIndex]) {
-        this.fetchUrgentFrameChunk(Math.round(this.targetPlayheadFrame));
-      }
+      this.fetchUrgentFrameChunk(Math.round(this.targetPlayheadFrame));
       this.renderFrame(p, Math.round(this.playheadFrame));
     };
 
