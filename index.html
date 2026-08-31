@@ -1272,55 +1272,39 @@ class Component extends DCLogic {
       // critical path, for a value with no consumer. The poster is loaded and
       // drawn by `this.posterImg` in preloadAppleSpritesLOD below.)
 
-      const isWebKit = /^((?!chrome|android|crios|fxios|edg).)*safari/i.test(navigator.userAgent);
-
-      // In Chrome/Edge/Firefox: Initialize Lenis for smooth virtual scroll
-      // In Safari: Use Apple's Native 120Hz Metal Inertial Scroll (avoids window.scrollTo layout thrashing in WebKit)
-      if (!isWebKit && typeof window.Lenis !== 'undefined') {
+      // Initialize Lenis Smooth Scroll with butter-smooth easing & momentum (All browsers including Safari)
+      if (typeof window.Lenis !== 'undefined') {
         this.lenis = new window.Lenis({
-          duration: 0.95,
+          duration: 1.2,
           easing: (t) => Math.min(1, 1.001 - Math.pow(2, -10 * t)),
           direction: 'vertical',
           gestureDirection: 'vertical',
           smoothWheel: true,
-          wheelMultiplier: 0.95,
+          wheelMultiplier: 1.0,
           touchMultiplier: 1.2,
-          infinite: false,
         });
+
+        // Use GSAP ticker for 100% single-loop synchronized frame timing
+        if (typeof window.gsap !== 'undefined' && window.gsap.ticker) {
+          this._gsapTickerCb = (time) => {
+            if (this.lenis) this.lenis.raf(time * 1000);
+          };
+          window.gsap.ticker.add(this._gsapTickerCb);
+          window.gsap.ticker.lagSmoothing(0);
+        } else {
+          const lenisRaf = (time) => {
+            if (this.lenis) {
+              this.lenis.raf(time);
+              this.animId = requestAnimationFrame(lenisRaf);
+            }
+          };
+          this.animId = requestAnimationFrame(lenisRaf);
+        }
 
         this.lenis.on('scroll', (e) => {
           if (this.onLenisScroll) this.onLenisScroll(e.scroll);
         });
       }
-
-      // Unified Master Ticker (1 single rAF loop for whole page)
-      const masterLoop = (time) => {
-        if (this.destroyed) return;
-        if (this.lenis) {
-          this.lenis.raf(time);
-        }
-
-        if (this.targetPlayheadFrame !== undefined && this.playheadFrame !== undefined) {
-          const diff = this.targetPlayheadFrame - this.playheadFrame;
-          if (Math.abs(diff) > 0.001) {
-            this.playheadFrame += diff * (isWebKit ? 0.65 : 0.70);
-            if (Math.abs(diff) < 0.05) this.playheadFrame = this.targetPlayheadFrame;
-            const currentFrame = Math.max(1, Math.min(this.TOTAL_FRAMES, Math.round(this.playheadFrame)));
-            if (!this.isMobile && this.canvas) {
-              if (currentFrame !== this.lastDrawnFrame) {
-                this.drawFrameOnCanvas(currentFrame);
-              }
-            }
-            if (this.frame && currentFrame !== this.lastFrameText) {
-              this.lastFrameText = currentFrame;
-              this.frame.textContent = 'FRAME ' + String(currentFrame).padStart(4, '0') + ' / ' + String(this.TOTAL_FRAMES).padStart(4, '0');
-            }
-          }
-        }
-
-        this.animId = requestAnimationFrame(masterLoop);
-      };
-      this.animId = requestAnimationFrame(masterLoop);
 
       // Hybrid Engine: 1080p HD Sprite Fallback (250 HD sheets, 4 frames/sheet 1920x1080) + Native 4K UHD Upgrade
       this.TOTAL_SPRITES = Math.ceil(this.TOTAL_FRAMES / 4); // 250 HD sprites
@@ -1470,12 +1454,10 @@ class Component extends DCLogic {
     };
     this.fetchSprite = fetchSprite;
 
-    // High-performance Runway Gate: Guarantee first 40 sheets (160 frames) + skeleton are ready
-    const GATE_DENSE = 40;
+    // High-performance Rapid Runway Gate: Preload first 15 sheets (60 frames) - unlocks in ~0.8s
+    const GATE_DENSE = 15;
     const gateSet = [];
     for (let s = 1; s <= Math.min(GATE_DENSE, this.TOTAL_SPRITES); s++) gateSet.push(s);
-    for (let s = GATE_DENSE + 1; s <= this.TOTAL_SPRITES; s += 8) gateSet.push(s);
-    if (gateSet[gateSet.length - 1] !== this.TOTAL_SPRITES) gateSet.push(this.TOTAL_SPRITES);
 
     const loadingScreen = document.getElementById('tpl-loading-screen');
     const percentEl = document.getElementById('tpl-loading-percent');
@@ -1492,7 +1474,7 @@ class Component extends DCLogic {
       if (barEl) barEl.style.width = '100%';
       if (loadingScreen) {
         loadingScreen.style.opacity = '0';
-        setTimeout(() => { loadingScreen.style.display = 'none'; }, 600);
+        setTimeout(() => { loadingScreen.style.display = 'none'; }, 400);
       }
 
       // Background streamer
@@ -1520,7 +1502,7 @@ class Component extends DCLogic {
     document.documentElement.style.overflow = 'hidden';
     window.scrollTo(0, 0);
 
-    const gateSafety = setTimeout(releaseScroll, 5000);
+    const gateSafety = setTimeout(releaseScroll, 2000);
 
     let loadedCount = 0;
     Promise.all(gateSet.map(s => fetchSprite(s, 'high').then(() => {
@@ -1917,6 +1899,12 @@ class Component extends DCLogic {
     if (this.frame && targetFrame !== this.lastFrameText) {
       this.lastFrameText = targetFrame;
       this.frame.textContent = 'FRAME ' + String(targetFrame).padStart(4, '0') + ' / ' + String(this.TOTAL_FRAMES).padStart(4, '0');
+    }
+
+    if (!this.isMobile && this.canvas) {
+      if (targetFrame !== this.lastDrawnFrame) {
+        this.drawFrameOnCanvas(targetFrame);
+      }
     }
 
 
